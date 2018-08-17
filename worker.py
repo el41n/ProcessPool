@@ -1,14 +1,20 @@
+"""Worker-process class for process pool."""
+import logging
 import multiprocessing
-import queue
 import signal
+import queue
+
+LOGGER = logging.getLogger()
 
 
 class Worker(multiprocessing.Process):
+    """Infinite execution class-process.
+    Takes callable and run it until timeout or execution finish."""
     n = 0
 
     def __init__(self, task_queue, stop_event, response_dict, tasks_complete):
         super().__init__()
-        # callable pipe
+        # queue with tasks(callable)
         self.queue = task_queue
         # Event() for stopping process
         self.stop_event = stop_event
@@ -26,19 +32,19 @@ class Worker(multiprocessing.Process):
         while not self.stop_event.is_set():
             # setting try block for timer exception
             try:
-                print('Wait for callable', self.num)
+                LOGGER.debug('Process %d wait for callable', self.num)
                 # getting task from queue
                 try:
                     task = self.queue.get(timeout=2)
                 except queue.Empty:
-                    print('Nothing')
+                    LOGGER.debug('Process %d has nothing to execute', self.num)
                     continue
 
-                print('Acquired', self.num)
+                LOGGER.debug('Process %d acquired task', self.num)
                 # setting timer if it necessary
                 if task.timeout:
-                    print('Set timer')
-                    signal.alarm(task.timer)
+                    LOGGER.debug('Process %d sets timer', self.num)
+                    signal.alarm(task.timeout)
                     signal.signal(signal.SIGALRM, self._stop_timer)
                 # starting executing task and catching all exceptions from task
                 try:
@@ -46,17 +52,15 @@ class Worker(multiprocessing.Process):
                 except Exception as err:
                     ret = err
                 finally:
-                    print('Complete', self.num)
-                    self.response_dict[task.id] = ret
-                    self.tasks_complete[task.id].set()
+                    raise StopExecution
 
-            except StopExecution as err:
-                print('Complete', self.num)
-                self.response_dict[task.id] = ret
+            except StopExecution:
+                LOGGER.debug('Process %d complete execution', self.num)
                 self.tasks_complete[task.id].set()
+                self.response_dict[task.id] = ret
                 continue
 
-        print('Worker {} stopped'.format(self.num))
+        LOGGER.debug('Process %d stopped', self.num)
 
     @staticmethod
     def _stop_timer(signum, frame):
@@ -66,9 +70,8 @@ class Worker(multiprocessing.Process):
 
 class StopExecution(Exception):
     """Exception for stopping callable in worker processes"""
-    def __init__(self, message):
+    def __init__(self, message=None):
         self.message = message
 
     def __repr__(self):
         return self.message
-
